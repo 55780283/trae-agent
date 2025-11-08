@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@midscene/web": "^0.11.0"
+  }
+}
