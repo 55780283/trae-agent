@@ -39,10 +39,11 @@ class BaseAgent(ABC):
         self._max_steps = agent_config.max_steps
         self._initial_messages: list[LLMMessage] = []
         self._task: str = ""
-        self._tools: list[Tool] = [
-            tools_registry[tool_name](model_provider=self._model_config.model_provider.provider)
-            for tool_name in agent_config.tools
-        ]
+        self._tools: list[Tool] = []
+        for tool_name in agent_config.tools:
+            if tool_name in tools_registry:
+                self._tools.append(tools_registry[tool_name](model_provider=self._model_config.model_provider.provider))
+            # MCP tools will be added later via initialise_mcp()
         self.docker_keep = docker_keep
         self.docker_manager: DockerManager | None = None
         original_tool_executor = ToolExecutor(self._tools)

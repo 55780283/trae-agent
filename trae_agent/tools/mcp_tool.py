@@ -1,8 +1,12 @@
 from typing import override
+import asyncio
+import logging
 
 import mcp
 
 from .base import Tool, ToolCallArguments, ToolExecResult, ToolParameter
+
+logger = logging.getLogger(__name__)
 
 
 class MCPTool(Tool):
@@ -47,12 +51,32 @@ class MCPTool(Tool):
 
     @override
     async def execute(self, arguments: ToolCallArguments) -> ToolExecResult:
-        try:
-            output = await self.client.call_tool(self.get_name(), arguments)
-            if output.isError:
-                return ToolExecResult(output=None, error=output.content[0].text)
-            else:
-                return ToolExecResult(output=output.content[0].text)
+        max_retries = 3
+        base_delay = 1.0
 
-        except Exception as e:
-            return ToolExecResult(error=f"Error running mcp tool: {e}", error_code=-1)
+        for attempt in range(max_retries):
+            try:
+                output = await self.client.call_tool(self.get_name(), arguments)
+                if output.isError:
+                    return ToolExecResult(output=None, error=output.content[0].text)
+                else:
+                    return ToolExecResult(output=output.content[0].text)
+
+            except asyncio.CancelledError:
+                # Don't retry on cancellation
+                raise
+
+            except Exception as e:
+                error_msg = f"Error running mcp tool {self.get_name()}: {e}"
+                logger.warning(f"{error_msg} (attempt {attempt + 1}/{max_retries})")
+
+                if attempt == max_retries - 1:
+                    # Last attempt failed
+                    return ToolExecResult(error=error_msg, error_code=-1)
+
+                # Wait before retrying with exponential backoff
+                delay = base_delay * (2 ** attempt)
+                await asyncio.sleep(delay)
+
+        # This should never be reached, but just in case
+        return ToolExecResult(error="Unexpected error in MCP tool execution", error_code=-1)

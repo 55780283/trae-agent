@@ -228,9 +228,49 @@ class TraeAgent(BaseAgent):
     @override
     def llm_indicates_task_completed(self, llm_response: LLMResponse) -> bool:
         """Check if the LLM indicates that the task is completed."""
-        if llm_response.tool_calls is None:
-            return False
-        return any(tool_call.name == "task_done" for tool_call in llm_response.tool_calls)
+        # First check if task_done tool was called
+        if llm_response.tool_calls is not None:
+            if any(tool_call.name == "task_done" for tool_call in llm_response.tool_calls):
+                return True
+
+        # Also check response content for completion indicators
+        if llm_response.content:
+            completion_indicators = [
+                "任务已完成",
+                "任务完成",
+                "已完成",
+                "完成",
+                "task completed",
+                "task finished",
+                "done",
+                "completed successfully",
+                "finished successfully",
+                # Add more completion indicators for simple tasks
+                "executed successfully",
+                "command completed",
+                "successfully executed",
+                "that's it",
+                "that's all",
+                "nothing else",
+                "no more",
+                "finished",
+                "complete",
+            ]
+
+            response_lower = llm_response.content.lower()
+
+            # Check for completion indicators
+            if any(indicator in response_lower for indicator in completion_indicators):
+                return True
+
+            # For simple command execution tasks, if the response mentions the command
+            # was executed and shows no clear intent to continue, consider it done
+            if ("echo" in self._task.lower() or "command" in response_lower) and \
+               ("executed" in response_lower or "output" in response_lower) and \
+               not any(word in response_lower for word in ["reassess", "re-evaluate", "clarify", "unclear", "incomplete"]):
+                return True
+
+        return False
 
     @override
     def _is_task_completed(self, llm_response: LLMResponse) -> bool:

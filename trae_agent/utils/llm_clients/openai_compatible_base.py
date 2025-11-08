@@ -83,28 +83,45 @@ class OpenAICompatibleClient(BaseLLMClient):
         extra_headers: dict[str, str] | None = None,
     ) -> ChatCompletion:
         """Create a response using the provider's API. This method will be decorated with retry logic."""
-        """Select the correct token parameter based on model configuration.
-        If max_completion_tokens is set, use it. Otherwise, use max_tokens."""
-        token_params = {}
-        if model_config.should_use_max_completion_tokens():
-            token_params["max_completion_tokens"] = model_config.get_max_tokens_param()
-        else:
-            token_params["max_tokens"] = model_config.get_max_tokens_param()
+        try:
+            """Select the correct token parameter based on model configuration.
+            If max_completion_tokens is set, use it. Otherwise, use max_tokens."""
+            token_params = {}
+            if model_config.should_use_max_completion_tokens():
+                token_params["max_completion_tokens"] = model_config.get_max_tokens_param()
+            else:
+                token_params["max_tokens"] = model_config.get_max_tokens_param()
 
-        return self.client.chat.completions.create(
-            model=model_config.model,
-            messages=self.message_history,
-            tools=tool_schemas if tool_schemas else openai.NOT_GIVEN,
-            temperature=model_config.temperature
-            if "o3" not in model_config.model
-            and "o4-mini" not in model_config.model
-            and "gpt-5" not in model_config.model
-            else openai.NOT_GIVEN,
-            top_p=model_config.top_p,
-            extra_headers=extra_headers if extra_headers else None,
-            n=1,
-            **token_params,
-        )
+            return self.client.chat.completions.create(
+                model=model_config.model,
+                messages=self.message_history,
+                tools=tool_schemas if tool_schemas else openai.NOT_GIVEN,
+                temperature=model_config.temperature
+                if "o3" not in model_config.model
+                and "o4-mini" not in model_config.model
+                and "gpt-5" not in model_config.model
+                else openai.NOT_GIVEN,
+                top_p=model_config.top_p,
+                extra_headers=extra_headers if extra_headers else None,
+                n=1,
+                **token_params,
+            )
+        except Exception as e:
+            # Enhanced error handling for API response issues
+            if "json.decoder.JSONDecodeError" in str(type(e)) or "Expecting value" in str(e):
+                # This is likely an API response parsing error
+                error_msg = f"API响应解析失败: 服务器返回的不是有效的JSON格式。可能的原因:\n"
+                error_msg += "1. API服务暂时不可用\n"
+                error_msg += "2. API返回了错误页面而不是JSON响应\n"
+                error_msg += "3. 网络连接问题\n"
+                error_msg += "4. API密钥或配置错误\n"
+                error_msg += f"原始错误: {str(e)}"
+
+                # Create a more informative exception
+                raise ValueError(error_msg) from e
+            else:
+                # Re-raise other exceptions as-is
+                raise
 
     @override
     def chat(

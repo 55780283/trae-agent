@@ -367,21 +367,22 @@ def run(
             sys.exit(1)
 
     try:
-        task_args = {
-            "project_path": working_dir,
-            "issue": task,
-            "must_patch": "true" if must_patch else "false",
-            "patch_path": patch_path,
-        }
-
         # Set up agent context for rich console if applicable
         if selected_console_type == ConsoleType.RICH and hasattr(cli_console, "set_agent_context"):
             cli_console.set_agent_context(agent, config.trae_agent, config_file, trajectory_file)
+            cli_console.set_initial_task(task)
 
-        # Agent will handle starting the appropriate console
-        _ = asyncio.run(agent.run(task, task_args))
-
-        console.print(f"\n[green]Trajectory saved to: {agent.trajectory_file}[/green]")
+        # Start interactive mode instead of direct execution
+        # For rich console, start the textual app which handles interaction
+        if selected_console_type == ConsoleType.RICH:
+            asyncio.run(_run_rich_interactive_loop_with_task(
+                agent, cli_console, config.trae_agent, config_file, trajectory_file, task, working_dir, must_patch, patch_path
+            ))
+        else:
+            # For simple console, use traditional interactive loop with initial task
+            asyncio.run(_run_simple_interactive_loop_with_task(
+                agent, cli_console, config.trae_agent, config_file, trajectory_file, task, working_dir, must_patch, patch_path
+            ))
 
     except KeyboardInterrupt:
         console.print("\n[yellow]Task execution interrupted by user[/yellow]")
@@ -593,6 +594,74 @@ async def _run_simple_interactive_loop(
         except Exception as e:
             error_text = Text(f"Error: {e}", style="red")
             console.print(error_text)
+
+
+async def _run_rich_interactive_loop_with_task(
+    agent: Agent,
+    cli_console: CLIConsole,
+    trae_agent_config: TraeAgentConfig,
+    config_file: str,
+    trajectory_file: str | None,
+    initial_task: str,
+    working_dir: str,
+    must_patch: bool,
+    patch_path: str | None,
+):
+    """Run the interactive loop for rich console with an initial task."""
+    # Set up the agent in the rich console so it can handle task execution
+    if hasattr(cli_console, "set_agent_context"):
+        cli_console.set_agent_context(agent, trae_agent_config, config_file, trajectory_file)
+
+    # Execute the initial task directly
+    task_args = {
+        "project_path": working_dir,
+        "issue": initial_task,
+        "must_patch": "true" if must_patch else "false",
+        "patch_path": patch_path,
+    }
+
+    console.print(f"\n[blue]Executing task: {initial_task}[/blue]")
+
+    # Execute the task directly without entering interactive loop
+    try:
+        await agent.run(initial_task, task_args)
+        console.print(f"\n[green]Task completed successfully. Trajectory saved to: {trajectory_file}[/green]")
+    except Exception as e:
+        console.print(f"\n[red]Task failed: {e}[/red]")
+        console.print(f"[blue]Trajectory saved to: {trajectory_file}[/blue]")
+        raise
+
+
+async def _run_simple_interactive_loop_with_task(
+    agent: Agent,
+    cli_console: CLIConsole,
+    trae_agent_config: TraeAgentConfig,
+    config_file: str,
+    trajectory_file: str | None,
+    initial_task: str,
+    working_dir: str,
+    must_patch: bool,
+    patch_path: str | None,
+):
+    """Run the interactive loop for simple console with an initial task."""
+    # Execute the initial task directly
+    task_args = {
+        "project_path": working_dir,
+        "issue": initial_task,
+        "must_patch": "true" if must_patch else "false",
+        "patch_path": patch_path,
+    }
+
+    console.print(f"\n[blue]Executing task: {initial_task}[/blue]")
+
+    # Execute the task directly without entering interactive loop
+    try:
+        await agent.run(initial_task, task_args)
+        console.print(f"\n[green]Task completed successfully. Trajectory saved to: {trajectory_file}[/green]")
+    except Exception as e:
+        console.print(f"\n[red]Task failed: {e}[/red]")
+        console.print(f"[blue]Trajectory saved to: {trajectory_file}[/blue]")
+        raise
 
 
 async def _run_rich_interactive_loop(

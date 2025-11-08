@@ -253,8 +253,41 @@ class Config:
         else:
             raise ConfigError("No models provided")
 
-        # Parse lakeview config
+        # Parse agents first to get agent configs for MCP servers and lakeview
+        agents = yaml_config.get("agents", None)
+
+        # Get MCP servers config from global or agent configs
+        mcp_servers_config = {}
+        global_mcp_servers = yaml_config.get("mcp_servers", {})
+        if global_mcp_servers:
+            mcp_servers_config.update({k: MCPServerConfig(**v) for k, v in global_mcp_servers.items()})
+
+        # Also check agent configs for MCP servers
+        if agents:
+            for agent_name, agent_config in agents.items():
+                agent_mcp_servers = agent_config.get("mcp_servers", {})
+                if agent_mcp_servers:
+                    mcp_servers_config.update({k: MCPServerConfig(**v) for k, v in agent_mcp_servers.items()})
+
+        # Get allow_mcp_servers from global or agent configs
+        allow_mcp_servers = yaml_config.get("allow_mcp_servers", [])
+        if agents:
+            for agent_name, agent_config in agents.items():
+                agent_allow_mcp_servers = agent_config.get("allow_mcp_servers", [])
+                if agent_allow_mcp_servers:
+                    allow_mcp_servers = agent_allow_mcp_servers
+                    break
+
+        # Parse lakeview config (before checking agent configs to allow lakeview in agent configs)
         lakeview = yaml_config.get("lakeview", None)
+        # Also check for lakeview config in agent configs
+        if lakeview is None and agents:
+            for agent_name, agent_config in agents.items():
+                agent_lakeview = agent_config.get("lakeview", None)
+                if agent_lakeview:
+                    lakeview = agent_lakeview
+                    break
+
         if lakeview is not None:
             lakeview_model_name = lakeview.get("model", None)
             if lakeview_model_name is None:
@@ -266,13 +299,7 @@ class Config:
         else:
             config.lakeview = None
 
-        mcp_servers_config = {
-            k: MCPServerConfig(**v) for k, v in yaml_config.get("mcp_servers", {}).items()
-        }
-        allow_mcp_servers = yaml_config.get("allow_mcp_servers", [])
-
-        # Parse agents
-        agents = yaml_config.get("agents", None)
+        # Parse agents (continue processing agents)
         if agents is not None and len(agents.keys()) > 0:
             for agent_name, agent_config in agents.items():
                 agent_model_name = agent_config.get("model", None)
@@ -284,10 +311,17 @@ class Config:
                     raise ConfigError(f"Model {agent_model_name} not found") from e
                 match agent_name:
                     case "trae_agent":
+                        # Get allow_mcp_servers from agent config, fallback to global config
+                        agent_allow_mcp_servers = agent_config.get("allow_mcp_servers", allow_mcp_servers)
+                        # Remove fields that are not part of TraeAgentConfig to avoid parameter conflicts
+                        agent_config_copy = agent_config.copy()
+                        agent_config_copy.pop("allow_mcp_servers", None)
+                        agent_config_copy.pop("mcp_servers", None)
+                        agent_config_copy.pop("lakeview", None)
                         trae_agent_config = TraeAgentConfig(
-                            **agent_config,
+                            **agent_config_copy,
                             mcp_servers_config=mcp_servers_config,
-                            allow_mcp_servers=allow_mcp_servers,
+                            allow_mcp_servers=agent_allow_mcp_servers,
                         )
                         trae_agent_config.model = agent_model
                         if trae_agent_config.enable_lakeview and config.lakeview is None:
